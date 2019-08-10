@@ -96,3 +96,19 @@ static natural_t get_free_memory(void)
                                                  8,
                                                  alphaInfo | kCGBitmapByteOrder32Little);
 ```
+
+<div id="container"></div>
+<link rel="stylesheet" href="https://imsun.github.io/gitment/style/default.css">
+<script src="https://imsun.github.io/gitment/dist/gitment.browser.js"></script>
+<script>
+var gitment = new Gitment({
+id: 'mikeblog', // 可选。默认为 location.href
+owner: 'MikeFighting',
+repo: 'BlogComment',
+oauth: {
+client_id: '8e2f9680af3a9d41bc50',
+client_secret: '7f7c1e9cce7dfbd453018631ab6233bbaf73ad86',
+},
+})
+gitment.render('container')
+</script>
