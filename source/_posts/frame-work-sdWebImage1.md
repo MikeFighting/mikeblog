@@ -1,114 +1,223 @@
 ---
 title: SDWebImage学习笔记（二）
-date: 2018-01-17 10:44:35
-tags: Note
+date: 2017-08-23 09:52:09
+tags: FrameWork
 ---
 
-## 内存缓存大小的限制
+本文是根据SDWebImage，Tag2.0到Tag2.6所做的总结。
 
-在设计缓存框架是的时候，如果内存我们使用的类是NSDictionary，或则NSArray这种通用类的话，如果内存占用率过高，导致系统RAM中少于12M内存（这个数值可能会随着系统版本和手机机型的不同而不同），那么系统的看门狗（watch dog）会将我们的App杀死。这时，我们要限制占用内存的大小。获取系统内存大小的方案如下：
+## 注意判空
 
-```objc
-#import <mach/mach.h>
-#import <mach/mach_host.h>
-static natural_t minFreeMemLeft = 1024*1024*12; // reserve 12MB RAM
-// inspired by http://stackoverflow.com/questions/5012886/knowing-available-ram-on-an-ios-device
-static natural_t get_free_memory(void)
-{
-    mach_port_t host_port;
-    mach_msg_type_number_t host_size;
-    vm_size_t pagesize;
+为了安全起见，方法中每个参数的值的异常我们都需考虑到，我们要有一个guard，然后直接返回，否则在某些特殊情况下，比如这个参数是服务端返回的，某次服务端没有返回，就会崩溃，加了guard之后就不会了，在swift中加入了`guard`关键字来做：
 
-    host_port = mach_host_self();
-    host_size = sizeof(vm_statistics_data_t) / sizeof(integer_t);
-    host_page_size(host_port, &pagesize);
-
-    vm_statistics_data_t vm_stat;
-
-    if (host_statistics(host_port, HOST_VM_INFO, (host_info_t)&vm_stat, &host_size) != KERN_SUCCESS)
-    {
-        NSLog(@"Failed to fetch vm statistics");
-        return 0;
+```swift
+ guard x > 0 else {
+        // 变量不符合条件判断,则返回
+        return
     }
-
-    /* Stats in bytes */
-    natural_t mem_free = vm_stat.free_count * pagesize;
-    return mem_free;
-}
 ```
 
-这里我们定义了最小的内存空间12M，然后在框架中，如果我们使用`get_free_memory`获取可用内存小于`minFreeMemLeft`，那么我们就移除内存缓存：
+因为在OC中没有这样的判断，所以我们需要添加如下的代码：
 
 ```objc
-- (void)storeImage:(UIImage *)image imageData:(NSData *)data forKey:(NSString *)key toDisk:(BOOL)toDisk
-{
-    if (!image || !key)
+  if (!url)
     {
+        self.image = nil;
         return;
     }
-    if (get_free_memory() < minFreeMemLeft)
-    {
-        [memCache removeAllObjects];
-    }
-    [memCache setObject:image forKey:key];
-    //.....
-}
 ```
 
->如果既想避免占用内存过高而被Kill掉，同时也想避免在每个方法中都去判断当前内存可用空间的大小，那么使用`NSCache`替代上文中提到的NSDictionary或者NSArray来做内存缓存的类，因为NSCache在内存吃紧的情况下会自动清除部分缓存。
+## 针对某个机型做接口适配
 
-## 关于图片的Alpha通道
-
-图片的Alpha通道会造成离屏渲染从而带来FPS的下降，所以没有特别必要的情况下应该尽量避免使用Alpha通道，如果从网络上下载下来的图片含有Alpha通道该怎样处理呢？我们可以在强制解码阶段来将Alpha通道去除：
+如果某个机型的手机需要做一些特殊处理，我们可以这么做：
 
 ```objc
-+ (UIImage *)decodedImageWithImage:(UIImage *)image
-{
-    CGImageRef imageRef = image.CGImage;
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-    // 使用kCGImageAlphaNoneSkipLast，去除了Alpha通道
-    CGContextRef context = CGBitmapContextCreate(NULL,
+ #ifdef __IPHONE_4_0
+ UIDevice *device = [UIDevice currentDevice];
+        if ([device respondsToSelector:@selector(isMultitaskingSupported)] && device.multitaskingSupported)
+        {
+            // When in background, clean memory in order to have less chance to be killed
+            [[NSNotificationCenter defaultCenter] addObserver:self
+                                                     selector:@selector(clearMemory)
+                                                         name:UIApplicationDidEnterBackgroundNotification
+                                                       object:nil];
+        }
+#endif
+```
+
+这样一来就只有iPhone4会执行里面的代码（__IPHONE_4_0是系统自带的宏）。
+
+## 多线程中如何使用`NSFileManager`
+
+如果某个方法是在后台线程中执行的，并且这个线程中使用了`NSFileManager`，为了避免资源竞争，需要使用`[[NSFileManager alloc] init]`的方式进行初始化：
+
+```objc
+  // Can't use defaultManager another thread
+    NSFileManager *fileManager = [[NSFileManager alloc] init];
+```
+
+## 存储图片时候不改变其图片类型
+
+如果我们在存储图片的时候要存储成某种格式的图片类型，那么可以使用：
+
+```objc
+ [fileManager createFileAtPath:[self cachePathForKey:key] contents:UIImageJPEGRepresentation(image, (CGFloat)1.0) attributes:nil];
+```
+
+如果我们不想改变存储时候的数据类型，那么可以使用：
+
+```objc
+   [fileManager createFileAtPath:[self cachePathForKey:key] contents:data attributes:nil];
+```   
+
+来完成。
+
+## 在NSOperationQueue中添加立即执行的任务
+
+如果要在NSOperationQueue中添加要立即执行的任务，那么可以这样做：
+
+```objc
+[cacheOutQueue addOperation:[[[NSInvocationOperation alloc] initWithTarget:self selector:@selector(queryDiskCacheOperation:) object:arguments]
+```   
+
+
+## 头文件引入过多
+
+如果我们的头文件引入过多，那么我们需要将这些头文件都放到一个新的文件中去，然后引入那个单独的文件即可，比如SDWebImageCompat文件的存在就是为了解决这个问题：
+
+```objc
+#import <TargetConditionals.h>
+#if !TARGET_OS_IPHONE
+#import <AppKit/AppKit.h>
+#ifndef UIImage
+#define UIImage NSImage
+#endif
+#ifndef UIImageView
+#define UIImageView NSImageView
+#endif
+#else
+#import <UIKit/UIKit.h>
+#endif
+```
+
+## 从数组中找到指向同一块内存空间的指针
+
+如果要从数组中找到数值相同的指针，我们可以使用：
+
+```objc
+    NSUInteger idx = [cacheDelegates indexOfObjectIdenticalTo:delegate];
+    if (idx == NSNotFound)
+    {
+        // Request has since been canceled
+        return;
+    }
+```
+
+这种形式，但是要注意没有找到时候的处理。
+
+## UIImage的解压缩
+
+PNG和JPEG等只是一种图片压缩格式，PNG是无损压缩，含有alpha通道，JPEG是有损压缩，没有alpha通道。我们每次展示图片的时候都需要先将UIImage进行解压缩。解压缩默认是在主线程中进行的，如果图片较大则会造成很大的性能消耗，如果在IO线程中进行则会提高性能，框架中使用的方式是：
+
+```objc
+CGImageRef imageRef = image.CGImage;
+CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+CGContextRef context = CGBitmapContextCreate(NULL,
                                                  CGImageGetWidth(imageRef),
                                                  CGImageGetHeight(imageRef),
                                                  8,
-                                                 kCGImageAlphaNoneSkipLast | kCGBitmapByteOrder32Little);
+                                                 // Just always return width * 4 will be enough
+                                                 CGImageGetWidth(imageRef) * 4,
+                                                 // System only supports RGB, set explicitly
+                                                 colorSpace,
+                                                 // Makes system don't need to do extra conversion when displayed.
+                                                 kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little); 
     CGColorSpaceRelease(colorSpace);
     if (!context) return nil;
 
-    CGRect rect = (CGRect){CGPointZero,{CGImageGetWidth(imageRef), CGImageGetHeight(imageRef)}};
+    CGRect rect = (CGRect){CGPointZero, CGImageGetWidth(imageRef), CGImageGetHeight(imageRef)};
     CGContextDrawImage(context, rect, imageRef);
     CGImageRef decompressedImageRef = CGBitmapContextCreateImage(context);
     CGContextRelease(context);
 
-    UIImage *decompressedImage = [[UIImage alloc] initWithCGImage:decompressedImageRef scale:image.scale orientation:image.imageOrientation];
+    UIImage *decompressedImage = [[UIImage alloc] initWithCGImage:decompressedImageRef];
     CGImageRelease(decompressedImageRef);
-    return SDWIReturnAutoreleased(decompressedImage);
+    return [decompressedImage autorelease];
+```
+
+关于UIImage的解压缩，可以参考相关文章：
+[怎样避免UIImage解压缩造成的性能消耗？](https://www.cocoanetics.com/2011/10/avoiding-image-decompression-sickness/)，[IOS中的图片解压缩](http://blog.leichunfeng.com/blog/2017/02/20/talking-about-the-decompression-of-the-image-in-ios/)，[UIImage解压缩的两种形式](https://stackoverflow.com/questions/19682804/why-does-this-code-decompress-a-uiimage-so-much-better-than-the-naive-approach)，[谈谈IOS中图片的解压缩](http://blog.leichunfeng.com/blog/2017/02/20/talking-about-the-decompression-of-the-image-in-ios/)
+
+## 怎样获取某个目录下的文件大小？
+
+```objc
+-(int)getSize
+{
+    int size = 0;
+    NSDirectoryEnumerator *fileEnumerator = [[NSFileManager defaultManager] enumeratorAtPath:diskCachePath];
+    for (NSString *fileName in fileEnumerator)
+    {
+        NSString *filePath = [diskCachePath stringByAppendingPathComponent:fileName];
+        NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:filePath error:nil];
+        size += [attrs fileSize];
+    }
+    return size;
 }
 ```
 
-如果想要保存原图片的Alpha通道，那么可以先获取原图片的Alpha通道信息，然后在调用CGBitmapContextCreate的时候将Alpha信息传递过去：
+## Struct初始化
+
+在某些情况下，Struct可以使用如下的方法进行初始化：
 
 ```objc
-    CGImageAlphaInfo alphaInfo = CGImageGetAlphaInfo(imageRef);
-    CGContextRef context = CGBitmapContextCreate(NULL,
-                                                 CGImageGetWidth(imageRef),
-                                                 CGImageGetHeight(imageRef),
-                                                 8,
-                                                 alphaInfo | kCGBitmapByteOrder32Little);
+CGRect rect = (CGRect){CGPointZero, { CGImageGetWidth(imageRef), CGImageGetHeight(imageRef) }};
 ```
 
-<div id="container"></div>
-<link rel="stylesheet" href="https://imsun.github.io/gitment/style/default.css">
-<script src="https://imsun.github.io/gitment/dist/gitment.browser.js"></script>
-<script>
-var gitment = new Gitment({
-id: 'mikeblog', // 可选。默认为 location.href
-owner: 'MikeFighting',
-repo: 'BlogComment',
-oauth: {
-client_id: '8e2f9680af3a9d41bc50',
-client_secret: '7f7c1e9cce7dfbd453018631ab6233bbaf73ad86',
-},
-})
-gitment.render('container')
-</script>
+## 调用方法是需要注意
+
+在某种特殊情况下，调用方法前要判断是否该对象具有某个方法，以免引起崩溃：
+
+```objc
+-    if ([((NSHTTPURLResponse *)response) statusCode] >= 400)
++    if ([response respondsToSelector:@selector(statusCode)] && [((NSHTTPURLResponse *)response) statusCode] >= 400)
+```
+
+因为在上述代码中`response`可能不是HTTP的response。
+
+## ImageIO实现图片边下边展示效果
+
+实现渐下渐放效果是在`SDWebImageDownloader.m`文件的`- (void)connection:(NSURLConnection *)aConnection didReceiveData:(NSData *)data{}`方法中。其中的关键代码为：
+
+```objc
+ /// Create the image
+            CGImageRef partialImageRef = CGImageSourceCreateImageAtIndex(imageSource, 0, NULL);
+
+#ifdef TARGET_OS_IPHONE
+            // Workaround for iOS anamorphic image
+            if (partialImageRef)
+            {
+                const size_t partialHeight = CGImageGetHeight(partialImageRef);
+                CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+                CGContextRef bmContext = CGBitmapContextCreate(NULL, width, height, 8, width * 4, colorSpace, kCGBitmapByteOrderDefault | kCGImageAlphaPremultipliedFirst);
+                CGColorSpaceRelease(colorSpace);
+                if (bmContext)
+                {
+                    CGContextDrawImage(bmContext, (CGRect){.origin.x = 0.0f, .origin.y = 0.0f, .size.width = width, .size.height = partialHeight}, partialImageRef);
+                    CGImageRelease(partialImageRef);
+                    partialImageRef = CGBitmapContextCreateImage(bmContext);
+                    CGContextRelease(bmContext);
+                }
+                else
+                {
+                    CGImageRelease(partialImageRef);
+                    partialImageRef = nil;
+                }
+            }
+```
+
+然后根据`CGImageRef`生成对应的`UIImage`并且将结果返回给delegate：
+
+```objc
+  UIImage *image = [[UIImage alloc] initWithCGImage:partialImageRef];
+  [delegate imageDownloader:self didUpdatePartialImage:image];
+```

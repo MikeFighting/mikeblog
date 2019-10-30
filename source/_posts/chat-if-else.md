@@ -11,7 +11,7 @@ if else 是我们学习C语言开始用的流程控制语句。还记得大学�
 
 我们先看一个例子：
 
-```swift
+```java
        public void OnMessage(Push.PushMessage pushMessage) {
         try {
             String message = pushMessage.messageContent;
@@ -63,19 +63,19 @@ if else 是我们学习C语言开始用的流程控制语句。还记得大学�
         Log.i("song", pushMessage.messageContent);
 
     }
-```                 
+```
 
 这个方法里面仅仅嵌套了好多层if else，看上去会比较复杂难懂，再看一个例子：
 
-```swift
+```java
 if(isSkipPPUForQA && StringUtils.isNotBlank(request.getParameter("userId"))){
     super.doFilter(request, response, chain);
 }else {
     try {
-    	if("/app/school/article/share".equals(request.getRequestURI())){
-    		super.doFilter(request, response, chain);
-    	}else{
-    		if(!filterReqUrl(request)) {
+        if("/app/school/article/share".equals(request.getRequestURI())){
+        super.doFilter(request, response, chain);
+    }else{
+       if(!filterReqUrl(request)) {
                 long ppuUserId = PassportService.passportService.getLoginUserId(RemoteValid.SAPCE_ONE_HOUR, request, response);
                 if (ppuUserId < 2) {
 response.getWriter().write(this.generateResponse(AppResultStateEnum.PPU_UNVALID.getCodeStr(), "登录认证信息已过期，请重新登录"));
@@ -102,12 +102,12 @@ response.getWriter().write(this.generateResponse(AppResultStateEnum.PPU_UNVALID.
                     }
                 }
             }
-    	}
+        }
     } catch (Exception e) {
         logger.error("业务处理异常,url=",e);
     }
 }
-```          
+```
 
 第一，这个方法中嵌套了七层的if else，层次太多。第二这个方法太长。嵌套层次过多和方法过长都是Bad Smell。那么究竟很多的if else有哪些弊端呢？
 
@@ -135,49 +135,49 @@ response.getWriter().write(this.generateResponse(AppResultStateEnum.PPU_UNVALID.
 
 **如果我们有几个判断条件是平级if，那么我们可以使用命令模式来解决这种问题。**比如我们现在有如下的if else：
 
-```swift       
+```java
 if (value.equals("A")) { doCommandA() }
-else if (value.equals("B")) { doCommandB() } 
+else if (value.equals("B")) { doCommandB() }
 else if etc.
-```    
+```
 
 这时，我们可以使用**命令模式**来解决，先创建一个接口：
 
-```swift
+```java
 public interface Command {
      void exec();
 }
-```       
+```
 
 然后`CommandA`和`CommandB`类实现这个接口：
 
-```swift
+```java
 public class CommandA() implements Command {
 
-     void exec() {
-          // ... 
-     }
-}
-public class CommandB() implements Command {
-     
      void exec() {
           // ...
      }
 }
-```       
+public class CommandB() implements Command {
+
+     void exec() {
+          // ...
+     }
+}
+```
 
 然后创建一个`Map<String,Command>`,并且往其中添加Command实例：
 
-```swift 
+```java
 commandMap.put("A", new CommandA());
 commandMap.put("B", new CommandB());
-```   
-                
+```
+
 然后所有的**if/else if**，就都会变成：
 
-```swift
+```java
 commandMap.get(value).exec();
-```     
+```
 
 如果某个Command有任何的改变只需要改动某个具体的类即可，如果有新加的Command，那么只需要添加响应的Command即可。命令模式就是加了一个**中间件：命令容器**(就是这里的Map，根据情况可能会是List或者其它)来实现解耦。
 
@@ -199,11 +199,11 @@ public class IfElseDemo {
         }
     }
 }
-```         
+```
 
 那么我们就可以将每个if分支中的代码单独分离到各个类中，然后再抽出一个父类，这样我们每个条件分支中就不会有很多代码了：
 
-```swift     
+```java
 public abstract class InsuranceStrategy {
     public double calculateInsuranceVeryHigh(double income) {
         return (income - getAdjustment()) * getWeight() + getConstant();
@@ -241,11 +241,10 @@ class IfElseDemo {
         } else {
             strategy = new InsuranceStrategyVeryHigh();
         }
-        
         return strategy.calculate(income);
     }
 }
-```      
+```
 
 这样最终不还是有if else吗？是的，最终还是有if else，但是if else的逻辑变得非常清晰，只是用于创建一个新的类。并且我们将经常变化的算法部分封装到了子类中，如果某个子类中的算法变了，只需要变动某个子类（**封装变化**），然后重新编译就可以了，不需要将整个项目重新编译，部署。
 
@@ -257,7 +256,7 @@ class IfElseDemo {
 public class Client {
 
     public  static  void  main(String[] args) {
-    
+
         Request request = new Request();
         request.addSalaryAmount = 9999;
         if (request.addSalaryAmount <= 100){
@@ -274,8 +273,8 @@ public class Client {
         }
     }
 }
-```                   
-  
+```
+
 上面这个例子中，不同的条件分支是让不同的对象来处理这种条件。并且以后可能Request对象会添加其他的请求属性，比如offWork（请假），并且这种请求属性同样需要`DivisionManager`，`Chief`，`GeneralManager`。然而其中的处理顺序变了，并不是现在的请求等级。可能是先由`Chief`处理，再有`GeneralManager`处理，最后有`DivisionManager`来处理，那怎么办呢？难道还要写一套if else吗？
 这时候我们就可以用责任链模式来将这一长串if else嵌套进每一个对象中去，我们可以这样做：
 
@@ -326,7 +325,7 @@ public class GeneralManager extends CommManager{
         }
     }
 }
-```        
+```
 
 最后在Client端调用的时候，我们可以这样写：
 
@@ -345,12 +344,11 @@ public class Client {
         divisionManager.accept(request.addSalaryAmount);
     }
 }
-```    
+```
 
 这种写法的好处是：**将条件和处理该条件的对象解耦，每个处理条件的对象都不知道其他对象，我们可以随时地增加或者修改处理一个请求的结构。这增加了给对象指派职责的灵活性**。
 
 >小结：其实上述的每种方式都是利用**多态**来解决分支带来的僵化，[谷歌有一个视频对这个问题阐述得很好。](https://www.youtube.com/watch?v=4F72VULWFvc)。
-
 
 ## 参考资料
 
@@ -363,5 +361,3 @@ public class Client {
 7. https://industriallogic.com/xp/refactoring/conditionalWithStrategy.html
 8. 大话设计模式
 9. 重构改善既有代码的设计
-
-

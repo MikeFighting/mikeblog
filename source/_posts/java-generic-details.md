@@ -44,11 +44,14 @@ class Pair<T> {
 ```java
 class ArrayAlg {
 public static <T> T getMiddle(T... a) {
-return a[a.length / 2]; }
+  return a[a.length / 2];
+
 }
 ```
 
-调用的时候不需要进行强制转换
+注意这个泛型的方法并不是在泛型类中的，而是在普通的Java类中的，当然，它也可以被定义在泛型类中。</br>
+
+调用的时候不需要进行强制转换：
 
 ```java
 String middle = ArrayAlg.getMiddle("John", "Q.", "Public");
@@ -69,7 +72,7 @@ public static <T extends Comparable> T min(T[] a) . . .
 
 ## 泛型和JVM
 
-在Java虚拟机中是没有任何泛型类的，所有的对象都是普通的Java类。其实编译器会对泛型实行一次擦除的过程。也就是说，当你定义一个泛型的时候，系统会自动给你创建一个原始类型给你。原始类型变量的名字和泛型时候取的名字是一样的，但是泛型类型的参数类型被移除了。这些类型被移除之后，取而代之的是它们的边界类型（如果没有边界，那么它的边界就是Object，这也是为了和Java之前的版本做兼容。这也就是上文提到的，为什么对于原始数据类型有一个装包和拆包的过程）。比如，如果你创建上文中的`Pair<T>`，在编译之后Pair类就成了下面的样子：
+在Java虚拟机中是没有任何泛型类的，所有的对象都是普通的Java类。其实泛型只是一种给程序员的一个假象，用来方便程序员写出安全语言的一种手段，在编译完之后编译器会对泛型实行一次擦除的过程。也就是说，当你定义一个泛型的时候，系统会自动给你创建一个原始类型给你。原始类型变量的名字和泛型时候取的名字是一样的，但是泛型类型的参数类型被移除了。这些类型被移除之后，取而代之的是它们的边界类型（如果没有边界，那么它的边界就是Object，这也是为了和Java之前的版本做兼容。这也就是上文提到的，为什么对于原始数据类型有一个装包和拆包的过程）。比如，如果你创建上文中的`Pair<T>`，在编译之后Pair类就成了下面的样子：
 
 ```java
 public class Pair {
@@ -168,21 +171,178 @@ public void setSecond(Object second) {
 
 ## Java泛型中需要注意的问题
 
-### 不能使用基本数据类型初始化泛型参数
+### 不能使用基本数据类型作为泛型类的初始化参数
+
+因为Java泛型在编译完之后就被擦除了，泛型类的属性都会变成Object类型，所以就不能传入基本数据类型作为参数，必须使用与基本数据类型所对应的Java类。还好Java中只有八中类型的基本数据类型。
 
 ### Runtime类型检查不起作用
 
+```java
+if (stringPair instanceof Pair<String>){
+
+    //....
+}
+if (stringPair instanceof Pair<T>){
+    //...
+
+}
+```
+
+上面的两种运行时的类型检查会报错，因为在编译完之后`Pair<String>`就不存在了，Pair就变成了属性为String类型的类，所以这种判断错误的，也不能通过编译。但是如果使用泛型类创建了一个对象，然后再判断对象的类型，那么就是可行的。比如：
+
+```java
+Pair<String> stringPair = new Pair<>();
+Pair<Double> doublePair = new Pair<>();
+if (stringPair.getClass() == doublePair.getClass()){
+
+    System.out.println("StringPair and DoublePair is equal");
+}
+```
+
+这时是可以判断成功的，他们都是一个Pair类，只不过这个类属性的类型不一样。
+
 ### 不能使用参数类型来创建Array
+
+泛型引入就是为了增加语言的安全性，如果没有泛型，那么对于Collection框架，在进行类型转化的时候很容易出现`java.lang.ClassCastException`这种类型的异常。泛型在设计的时候有一条原则：
+
+>如果一段代码在编译时没有提出“[unchecked] 未经检查的转换”警告，则程序在运行时不会引发ClasscastException异常
+
+所以，如果
+
+```java
+Pair<String>[] p=new Pair<String>[10]; //1 这段代码实际是不能通过编译的
+Object[] objs=p; //2
+```
+
+这里，如果第一行的代码被允许，那么根据数组的特性，第二行的代码也是被允许的，并且不会有警告。这样一来我们就可以给`objs`数组里面添加任意的对象了，并且不会有任何警告，这显然是与泛型的设计原则相违背的。如果这时非要使用数组来存储泛型，那么可以使用ArrayList：
+
+```java
+ArrayList<Pair<String>> myArrayList = new ArrayList<>();
+```
+
+为什么ArrayList可以呢？因为将`Pair<String>`类型的ArrayList转换为Object类型的ArrayList在编译期就会报错，这就保证了安全性。
 
 ### 可变参数警告
 
-### 不能初始化类型变量
+如果一个方法是可变参数的，并且其类型是泛型，那么Java虚拟机就不得不创建一个泛型数组，这与上一条约定是矛盾的，但这时JVM会放松对泛型的限制，只不过会抛出一个警告`uncheck`的警告：
+
+```java
+  private static void testFour(){
+
+        Collection<Pair<String>> table = null;
+        Pair<String> pair1 = new Pair<>();
+        Pair<String> pair2 = new Pair<>();
+        addAll(table,pair1,pair2);
+    }
+
+    private static <T> void addAll(Collection<T> collection, T... ts){
+
+        for(T t:ts) {
+            collection.add(t);
+        }
+    }
+```
+
+这时会抛出一个`Unchecked generics array creation for varargs parameters` 这个警告，这时有两种解决方案。首先可以再`addAll`方法的上面加上`@SafeVarargs`的注解或者在调用方`testFour`的上面加上`@SuppressWarnings('unchecked')`注解。
+
+### 不能初始化泛型变量
+
+也就是说在泛型类中，如果一个变量是泛型的，那么不能直接对其进行初始化，比如在构造方法中：
+
+```java
+public Pair() {
+
+    first = new T();
+    second = new T();
+}
+```
+
+这样的写法是通不过编译的，因为泛型在编译完成之后泛型就被擦除了，就变成了Object，如果真的可以初始化，那么这个Pair类在初始化之后它的first和second的初始值就是Object了。这显然不是我们期望的，所以不能对泛型属性进行实例化。如果真的想在初始化时候就实例化，那么可以提供一个静态初始化方法，然后将属性的类传进来：
+
+```java
+public static <T> Pair<T> makePair(Class<T> cl) {
+
+    try {
+        return new Pair<>(cl.newInstance(),cl.newInstance());
+    }catch (Exception x) {
+        return null;
+    }
+}
+```
 
 ### 泛型类中的静态环境中不允许使用类型变量
 
+比如下面的泛型类：
+
+```java
+public class Singleton<T> {
+
+    private static T singleInstance;
+    public static T getSingleInstance() {
+       if(singleInstance == null) {
+           // 初始化singleInstance
+       }
+        return singleInstance;
+    }
+}
+```
+
+上面的公用泛型类是不能通过编译的，因为在泛型被擦除之后就变成了Object，那么这个即使这个Singleton可以使static变量，那么也只能创建一个对象，而不能作为单例的公用方法。为什么不能将泛型声明为stati呢？因为泛型是要在对象创建的时候才知道是什么类型的，而对象创建的代码执行先后顺序是：static的部分，然后才是构造函数等等。所以在对象初始化之前static的部分已经执行了，如果你在静态部分引用的泛型，那么毫无疑问虚拟机根本不知道是什么东西，因为这个时候类还没有初始化。
+
 ### 不能抛出或者捕获泛型类对象
 
-### 注意泛型擦除之后的冲突
+泛型类不能extend Throwable，同时不能Catch住泛型，比如：
+
+```java
+public class Problem<T> extends Exception {
+    //...
+    }
+```
+
+以及：
+
+```java
+public static <T extends Throwable> void doWork(Class<T> t){
+    try{
+            doWork();
+        }catch (T e){
+            Logger.global.info(...);
+        }
+}
+```
+
+这些都是不能通过编译的。之所以要这样设计，我猜测是不利于异常的处理，因为我们在泛型类里已经捕获到了异常，当我们调用泛型类的时候，即使报错了，我们也不知道，因为底层的泛型类已经将错误吞掉了，这样不利于对具体的业务做相应的处理。所以，如果我们把错误抛出来，那么就会好很多，比如下面这种做法就是可行的：
+
+```java
+public static <T extends Throwable> void doWork(T t) throw T {
+
+    try {
+
+        doWork();
+    }catch(Throwable realCause){
+      t.initCause(realCause);
+      throw t;
+    }
+}
+```
+
+这样使用泛型类的Client端就可以根据业务的需要做相应的处理了。
+
+### 泛型擦除之后可能引起冲突
+
+泛型在擦除之后是Object，所以在定义某些泛型方法的时候要注意，在泛型变为Object的时候是不是会引起和原来的方法引起冲突。比如：
+
+```java
+public class Pair<T> {
+    public boolean equals(T value) {
+
+        return first.equals(value) && second.equals(value);
+        //...
+    }
+}
+```
+
+这样在泛型被擦除之后`boolean equals(T)`就变为了`boolean equals(Object)`，这个方法其实和Object的`equals(Object)`方法是一样的，所以就引起了冲突。
 
 ## 其它
 
@@ -201,12 +361,12 @@ Dictionary<Integer, Components> labelTable = slider.getLabelTable(); // No warni
 
 当然也可以在外层的方法上添加。
 
-Array有特殊的保护，不能对存有父类的Array中添加子类元素，否则在运行时虚拟机会抛出ArrayStoreException的异常。
-
 ## 参考内容
 
-https://www.zhihu.com/question/20400700
-http://blog.csdn.net/claram/article/details/51943742
+1. https://www.zhihu.com/question/20400700
+2. http://blog.csdn.net/claram/article/details/51943742
+2. http://blog.csdn.net/yj_fq/article/details/44590285
+3. Java核心卷1
 
 
 
